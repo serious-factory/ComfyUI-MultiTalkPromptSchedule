@@ -22,14 +22,56 @@ Each line = `<frames>: <prompt>`. At 24fps, 120 frames = 5 seconds.
 
 The node handles encoding, and the prompt selection follows audio position — so prompts stay in sync even when window sizes don't align perfectly with your frame ranges.
 
+## Schedule format
+
+### Basic — positive prompt only
+
+Each scene gets the global `negative_prompt` field from the node:
+
+```
+120: Person 1 speaks to the camera, person 2 listens
+120: Person 2 responds, person 1 nods
+120: Both look at the camera and smile
+```
+
+### Per-scene negative prompts
+
+Use `|||` to set a custom negative prompt for a specific scene:
+
+```
+120: Person 1 speaks ||| blurred eyes, static pose, camera zoom
+120: Person 2 responds ||| aggressive movement, face morphing
+120: Both smile ||| camera shake, overexposed
+```
+
+### Mixed — some scenes with custom negatives, others use global
+
+Scenes **without** `|||` fall back to the global `negative_prompt` field:
+
+```
+120: Person 1 speaks ||| blurred eyes, static pose
+120: Person 2 responds
+120: Both smile ||| aggressive movement
+```
+
+Here scene 2 uses the global negative prompt, scenes 1 and 3 use their own.
+
+### Comments
+
+Lines starting with `#` are ignored:
+
+```
+# Scene 1: introduction (5s)
+120: Person 1 speaks to the camera
+# Scene 2: response (5s)
+120: Person 2 responds
+```
+
 ## Features
 
 - **Frame-precise scheduling** — prompts are selected based on audio position, not window iteration count
-- **Per-scene negative prompts** — use `|||` to override the negative prompt for specific scenes:
-  ```
-  120: Person 1 speaks ||| blurred eyes, static pose
-  120: Both smile
-  ```
+- **Per-scene negative prompts** — use `|||` to override the negative prompt for specific scenes
+- **Global negative fallback** — scenes without `|||` use the node's `negative_prompt` field
 - **Comments** — lines starting with `#` are ignored
 - **NAG compatible** — works with `WanVideoApplyNAG` (prompt_schedule is preserved through NAG)
 - **Zero-patch install** — monkey-patches WanVideoWrapper at runtime, no files modified
