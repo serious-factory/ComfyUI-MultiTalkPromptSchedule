@@ -237,6 +237,26 @@ def apply_prompt_schedule_patch():
             "with prompt_schedule support."
         )
         _PATCHED = True
+
+        # CRITICAL: nodes_sampler.py imports multitalk_loop with
+        # `from .multitalk.multitalk_loop import multitalk_loop`
+        # which creates a separate reference. We must update it too,
+        # otherwise the sampler keeps calling the original function.
+        for sampler_module_name in [
+            "custom_nodes.ComfyUI-WanVideoWrapper.nodes_sampler",
+            "custom_nodes.ComfyUI_WanVideoWrapper.nodes_sampler",
+        ]:
+            try:
+                sampler_mod = importlib.import_module(sampler_module_name)
+                sampler_mod.multitalk_loop = loop_mod.multitalk_loop
+                log.info(
+                    "[MultiTalkPromptSchedule] Also patched reference in "
+                    "nodes_sampler module."
+                )
+                break
+            except (ImportError, AttributeError):
+                continue
+
     except Exception as e:
         log.error(
             f"[MultiTalkPromptSchedule] Failed to compile patched "
