@@ -21,7 +21,7 @@ def _select_prompt(text_embeds, audio_start_idx, iteration_count, log_fn):
         positive: list of prompt embeddings for this window
     """
     prompt_schedule = text_embeds.get("prompt_schedule", None)
-    negative_schedule = text_embeds.get("negative_schedule", None)
+    nag_schedule = text_embeds.get("nag_schedule", None)
 
     if prompt_schedule is not None:
         # Frame-based prompt selection (MultiTalkPromptSchedule node)
@@ -32,13 +32,17 @@ def _select_prompt(text_embeds, audio_start_idx, iteration_count, log_fn):
                 break
         positive = [text_embeds["prompt_embeds"][prompt_index]]
 
-        # Per-scene negative prompt if available
-        if negative_schedule is not None and prompt_index in negative_schedule:
-            neg_index = negative_schedule[prompt_index]
-            text_embeds["negative_prompt_embeds"] = [
-                text_embeds["all_negative_embeds"][neg_index]
-            ]
-            log_fn(f"Using per-scene negative prompt for scene {prompt_index}")
+        # Per-scene NAG negative if available
+        if nag_schedule is not None and prompt_index in nag_schedule:
+            nag_index = nag_schedule[prompt_index]
+            nag_embed = [text_embeds["all_nag_embeds"][nag_index]]
+            text_embeds["nag_prompt_embeds"] = nag_embed
+            text_embeds["negative_prompt_embeds"] = nag_embed
+            log_fn(f"Using per-scene NAG negative for scene {prompt_index}")
+        elif nag_schedule is not None:
+            if "all_nag_embeds" in text_embeds:
+                text_embeds["nag_prompt_embeds"] = [text_embeds["all_nag_embeds"][0]]
+                text_embeds["negative_prompt_embeds"] = [text_embeds["all_nag_embeds"][0]]
 
         sched_start, sched_end = prompt_schedule[prompt_index]
         log_fn(
@@ -137,7 +141,7 @@ def apply_prompt_schedule_patch():
         # Use the appropriate prompt for this section
         # [Patched by ComfyUI-MultiTalkPromptSchedule]
         prompt_schedule = text_embeds.get("prompt_schedule", None)
-        negative_schedule = text_embeds.get("negative_schedule", None)
+        nag_schedule = text_embeds.get("nag_schedule", None)
         if prompt_schedule is not None:
             prompt_index = len(prompt_schedule) - 1
             for idx, (sched_start, sched_end) in enumerate(prompt_schedule):
@@ -145,10 +149,16 @@ def apply_prompt_schedule_patch():
                     prompt_index = idx
                     break
             positive = [text_embeds["prompt_embeds"][prompt_index]]
-            if negative_schedule is not None and prompt_index in negative_schedule:
-                neg_index = negative_schedule[prompt_index]
-                text_embeds["negative_prompt_embeds"] = [text_embeds["all_negative_embeds"][neg_index]]
-                log.info(f"Using per-scene negative prompt for scene {prompt_index}")
+            if nag_schedule is not None and prompt_index in nag_schedule:
+                nag_index = nag_schedule[prompt_index]
+                nag_embed = [text_embeds["all_nag_embeds"][nag_index]]
+                text_embeds["nag_prompt_embeds"] = nag_embed
+                text_embeds["negative_prompt_embeds"] = nag_embed
+                log.info(f"Using per-scene NAG negative for scene {prompt_index}")
+            elif nag_schedule is not None:
+                if "all_nag_embeds" in text_embeds:
+                    text_embeds["nag_prompt_embeds"] = [text_embeds["all_nag_embeds"][0]]
+                    text_embeds["negative_prompt_embeds"] = [text_embeds["all_nag_embeds"][0]]
             sched_start, sched_end = prompt_schedule[prompt_index]
             log.info(f"Using scheduled prompt {prompt_index} (frames {sched_start}-{sched_end}) at audio_start_idx={audio_start_idx}")
         elif len(text_embeds["prompt_embeds"]) > 1:

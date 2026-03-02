@@ -2,13 +2,17 @@ class MultiTalkPromptSchedule:
     """Assigns prompts to specific frame ranges for scene direction in MultiTalk.
 
     Format: one line per scene, each line is "frames: prompt text"
-    Optional per-scene negative with "|||": "frames: positive prompt ||| negative prompt"
-    Lines without "|||" use the global negative_prompt field.
+    Optional per-scene NAG negative with "|||": "frames: positive ||| negative"
+    Lines without "|||" use the global negative_prompt field for NAG.
+
+    The per-scene negatives feed NAG (Normalized Attention Guidance), which
+    operates inside cross-attention layers. This is the only negative guidance
+    mechanism active at cfg=1 (standard InfiniteTalk setting).
 
     Example:
-        120: Person 1 speaks to the camera, person 2 listens
-        120: Person 2 responds, person 1 nods ||| blurred eyes, static pose
-        120: Both look at the camera and smile
+        120: Person 1 speaks to camera ||| looking sideways, looking away
+        120: Person 2 speaks to person 1 ||| looking at camera, wandering eyes
+        120: Both look at camera and smile
     """
 
     @classmethod
@@ -25,15 +29,17 @@ class MultiTalkPromptSchedule:
                     "multiline": True,
                     "tooltip": (
                         "One line per scene. Format: frames: prompt text "
-                        "||| optional negative prompt"
+                        "||| optional NAG negative prompt"
                     ),
                 }),
                 "negative_prompt": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "tooltip": (
-                        "Default negative prompt used for scenes without "
-                        "a per-scene negative (|||)"
+                        "Default negative prompt for NAG guidance. "
+                        "Used for all scenes without a per-scene negative (|||). "
+                        "Also used as the negative_text_embeds output for "
+                        "WanVideoApplyNAG."
                     ),
                 }),
             },
@@ -51,13 +57,16 @@ class MultiTalkPromptSchedule:
 
 Format: one line per scene
   <frames>: <prompt>
-  <frames>: <prompt> ||| <negative prompt>
+  <frames>: <prompt> ||| <NAG negative prompt>
 
 Lines without ||| use the global negative_prompt field.
+Per-scene negatives feed NAG (active at cfg=1).
+
+Connect negative_text_embeds to WanVideoApplyNAG → nag_text_embeds.
 
 Example:
-  120: Person 1 speaks to the camera, person 2 listens
-  120: Person 2 responds, person 1 nods ||| blurred eyes, static
+  120: Person 1 speaks to camera ||| looking sideways, turned away
+  120: Person 2 responds, person 1 nods
   120: Both look at the camera and smile
 
 Each number is the duration in frames (120 = 5s at 24fps).
@@ -152,7 +161,9 @@ Each number is the duration in frames (120 = 5s at 24fps).
         for i, (prompt, (start, end)) in enumerate(
             zip(prompts, frame_schedule)
         ):
-            neg_info = " [custom negative]" if i in per_scene_negatives else ""
+            neg_info = ""
+            if i in per_scene_negatives:
+                neg_info = f' [NAG negative: "{per_scene_negatives[i][:40]}"]'
             log.info(
                 f"  Prompt {i+1}: frames {start}-{end} "
                 f"({end-start} frames){neg_info} = "
@@ -199,20 +210,21 @@ Each number is the duration in frames (120 = 5s at 24fps).
             mm.soft_empty_cache()
             gc.collect()
 
-        # Collect unique negative prompts to encode
+        # Collect unique negative prompts to encode.
+        # These serve as NAG negatives (the only negative guidance at cfg=1).
         unique_negatives = [negative_prompt]  # index 0 = global default
         neg_text_to_index = {negative_prompt: 0}
-        negative_schedule = {}
+        nag_schedule = {}
 
         for scene_idx, neg_text in per_scene_negatives.items():
             if neg_text not in neg_text_to_index:
                 neg_text_to_index[neg_text] = len(unique_negatives)
                 unique_negatives.append(neg_text)
-            negative_schedule[scene_idx] = neg_text_to_index[neg_text]
+            nag_schedule[scene_idx] = neg_text_to_index[neg_text]
 
         log.info(
             f"[MultiTalkPromptSchedule] Encoding "
-            f"{len(unique_negatives)} unique negative prompt(s)"
+            f"{len(unique_negatives)} unique negative prompt(s) for NAG"
         )
 
         with torch.autocast(
@@ -239,10 +251,14 @@ Each number is the duration in frames (120 = 5s at 24fps).
             "prompt_schedule": frame_schedule,
         }
 
-        if negative_schedule:
-            text_embeds["all_negative_embeds"] = context_null
-            text_embeds["negative_schedule"] = negative_schedule
+        # Per-scene NAG negatives: stored in text_embeds so the
+        # multitalk_loop patch can swap nag_prompt_embeds per scene.
+        if nag_schedule:
+            text_embeds["all_nag_embeds"] = context_null
+            text_embeds["nag_schedule"] = nag_schedule
 
+        # negative_text_embeds output: connect to WanVideoApplyNAG → nag_text_embeds.
+        # This sets the global/default NAG negative embedding.
         negative_text_embeds = {
             "prompt_embeds": [context_null[0]],
         }
@@ -251,10 +267,10 @@ Each number is the duration in frames (120 = 5s at 24fps).
             f"[MultiTalkPromptSchedule] Encoded {len(context)} prompts, "
             f"schedule: {frame_schedule}"
         )
-        if negative_schedule:
+        if nag_schedule:
             log.info(
-                f"[MultiTalkPromptSchedule] Per-scene negatives: "
-                f"{negative_schedule}"
+                f"[MultiTalkPromptSchedule] Per-scene NAG negatives: "
+                f"{nag_schedule}"
             )
 
         return (text_embeds, negative_text_embeds)
