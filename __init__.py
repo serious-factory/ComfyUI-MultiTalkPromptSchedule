@@ -16,27 +16,20 @@ apply_prompt_schedule_patch()
 # in-place by multitalk_loop during sampling. Without this, the
 # second generation receives corrupted cached data → frozen video.
 def _disable_cache_for_mutable_nodes():
-    import importlib, logging
+    import sys, logging
     _log = logging.getLogger("ComfyUI-MultiTalkPromptSchedule")
-    for mod_name in [
-        "custom_nodes.ComfyUI-WanVideoWrapper.nodes",
-        "custom_nodes.ComfyUI_WanVideoWrapper.nodes",
-    ]:
-        try:
-            mod = importlib.import_module(mod_name)
-            break
-        except ImportError:
-            continue
-    else:
-        return
 
-    # MultiTalkWav2VecEmbeds: audio_embedding gets padded in-place
-    # WanVideoImageToVideoMultiTalk: image_embeds dict gets mutated
-    for cls_name in ["MultiTalkWav2VecEmbeds", "WanVideoImageToVideoMultiTalk"]:
-        cls = getattr(mod, cls_name, None)
-        if cls is not None and not hasattr(cls, '_orig_IS_CHANGED'):
-            cls.IS_CHANGED = classmethod(lambda cls, **kw: float("nan"))
-            _log.info(f"[MultiTalkPromptSchedule] Disabled cache for {cls_name}")
+    # Scan sys.modules to find the classes regardless of module naming
+    target_classes = ["MultiTalkWav2VecEmbeds", "WanVideoImageToVideoMultiTalk"]
+    for mod_key, mod in list(sys.modules.items()):
+        if mod is None:
+            continue
+        for cls_name in target_classes:
+            cls = getattr(mod, cls_name, None)
+            if cls is not None and isinstance(cls, type) and not hasattr(cls, '_cache_disabled'):
+                cls.IS_CHANGED = classmethod(lambda cls, **kw: float("nan"))
+                cls._cache_disabled = True
+                _log.info(f"[MultiTalkPromptSchedule] Disabled cache for {cls_name} (in {mod_key})")
 
 _disable_cache_for_mutable_nodes()
 
