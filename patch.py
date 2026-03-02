@@ -149,6 +149,7 @@ def apply_prompt_schedule_patch():
     patched_block = textwrap.dedent("""\
         # Use the appropriate prompt for this section
         # [Patched by ComfyUI-MultiTalkPromptSchedule]
+        log.info(f"[MultiTalkPromptSchedule PATCH] text_embeds keys: {list(text_embeds.keys())}")
         prompt_schedule = text_embeds.get("prompt_schedule", None)
         nag_schedule = text_embeds.get("nag_schedule", None)
         if prompt_schedule is not None:
