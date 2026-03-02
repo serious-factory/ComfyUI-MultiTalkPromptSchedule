@@ -239,6 +239,34 @@ def apply_prompt_schedule_patch():
     new_src_lines = (
         src_lines[:match_start] + patched_lines + src_lines[match_end:]
     )
+
+    # Patch 2: deepcopy audio_embedding to prevent cache corruption.
+    # The original `audio_embedding = multitalk_audio_embeds` is just a
+    # reference. When audio is short, the loop pads audio_embedding[i]
+    # in-place (torch.cat) which corrupts the cached node output.
+    # On the next run, embeddings are already padded → wrong sizes → frozen video.
+    audio_orig = "audio_embedding = multitalk_audio_embeds"
+    audio_patched = (
+        "# [Patched by ComfyUI-MultiTalkPromptSchedule] deepcopy to prevent cache corruption\n"
+        "audio_embedding = [t.clone() for t in multitalk_audio_embeds]"
+    )
+    patched_count = 0
+    for i, line in enumerate(new_src_lines):
+        if audio_orig in line:
+            indent2 = line[: len(line) - len(line.lstrip())]
+            new_src_lines[i] = "\n".join(indent2 + l for l in audio_patched.splitlines())
+            patched_count += 1
+    if patched_count > 0:
+        log.info(
+            "[MultiTalkPromptSchedule] Also patched audio_embedding "
+            "to deepcopy (prevents cache corruption on re-run)."
+        )
+    else:
+        log.warning(
+            "[MultiTalkPromptSchedule] Could not find "
+            "'audio_embedding = multitalk_audio_embeds' to patch."
+        )
+
     new_src = "\n".join(new_src_lines)
 
     # Remove the `def multitalk_loop(self, **kwargs):` indentation
