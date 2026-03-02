@@ -24,6 +24,15 @@ def _select_prompt(text_embeds, audio_start_idx, iteration_count, log_fn):
     nag_schedule = text_embeds.get("nag_schedule", None)
 
     if prompt_schedule is not None:
+        # Restore original NAG embeds before swapping (prevents cache corruption)
+        if "_orig_nag_prompt_embeds" not in text_embeds:
+            import copy as _copy
+            text_embeds["_orig_nag_prompt_embeds"] = _copy.deepcopy(text_embeds.get("nag_prompt_embeds"))
+            text_embeds["_orig_negative_prompt_embeds"] = _copy.deepcopy(text_embeds.get("negative_prompt_embeds"))
+        else:
+            text_embeds["nag_prompt_embeds"] = text_embeds["_orig_nag_prompt_embeds"]
+            text_embeds["negative_prompt_embeds"] = text_embeds["_orig_negative_prompt_embeds"]
+
         # Frame-based prompt selection (MultiTalkPromptSchedule node)
         prompt_index = len(prompt_schedule) - 1  # default to last
         for idx, (sched_start, sched_end) in enumerate(prompt_schedule):
@@ -143,6 +152,14 @@ def apply_prompt_schedule_patch():
         prompt_schedule = text_embeds.get("prompt_schedule", None)
         nag_schedule = text_embeds.get("nag_schedule", None)
         if prompt_schedule is not None:
+            # Restore original NAG embeds before swapping (prevents cache corruption between runs)
+            if "_orig_nag_prompt_embeds" not in text_embeds:
+                import copy as _copy
+                text_embeds["_orig_nag_prompt_embeds"] = _copy.deepcopy(text_embeds.get("nag_prompt_embeds"))
+                text_embeds["_orig_negative_prompt_embeds"] = _copy.deepcopy(text_embeds.get("negative_prompt_embeds"))
+            else:
+                text_embeds["nag_prompt_embeds"] = text_embeds["_orig_nag_prompt_embeds"]
+                text_embeds["negative_prompt_embeds"] = text_embeds["_orig_negative_prompt_embeds"]
             prompt_index = len(prompt_schedule) - 1
             for idx, (sched_start, sched_end) in enumerate(prompt_schedule):
                 if audio_start_idx < sched_end:
