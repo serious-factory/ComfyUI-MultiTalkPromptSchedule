@@ -260,20 +260,63 @@ def apply_prompt_schedule_patch():
         # `from .multitalk.multitalk_loop import multitalk_loop`
         # which creates a separate reference. We must update it too,
         # otherwise the sampler keeps calling the original function.
-        for sampler_module_name in [
-            "custom_nodes.ComfyUI-WanVideoWrapper.nodes_sampler",
-            "custom_nodes.ComfyUI_WanVideoWrapper.nodes_sampler",
-        ]:
-            try:
-                sampler_mod = importlib.import_module(sampler_module_name)
-                sampler_mod.multitalk_loop = loop_mod.multitalk_loop
-                log.info(
-                    "[MultiTalkPromptSchedule] Also patched reference in "
-                    "nodes_sampler module."
-                )
-                break
-            except (ImportError, AttributeError):
+        #
+        # We scan ALL loaded modules because ComfyUI may register them
+        # under unexpected names in sys.modules (hyphen vs underscore, etc.)
+        import sys
+        patched_fn = loop_mod.multitalk_loop
+        patched_count = 0
+        for mod_key, mod in list(sys.modules.items()):
+            if mod is None or mod is loop_mod:
                 continue
+            try:
+                if hasattr(mod, 'multitalk_loop') and callable(getattr(mod, 'multitalk_loop')):
+                    old_fn = getattr(mod, 'multitalk_loop')
+                    if old_fn is not patched_fn:
+                        setattr(mod, 'multitalk_loop', patched_fn)
+                        log.info(
+                            f"[MultiTalkPromptSchedule] Patched multitalk_loop "
+                            f"reference in module: {mod_key}"
+                        )
+                        patched_count += 1
+            except Exception:
+                continue
+        if patched_count == 0:
+            log.warning(
+                "[MultiTalkPromptSchedule] No other modules with multitalk_loop "
+                "found. The sampler may not be loaded yet — registering an "
+                "import hook to patch it when it loads."
+            )
+            # Deferred patch: if nodes_sampler loads AFTER us, patch it then
+            _deferred_patch_fn = patched_fn
+            _deferred_loop_mod = loop_mod
+
+            class _MultitalkImportHook:
+                def find_module(self, name, path=None):
+                    if 'nodes_sampler' in name:
+                        return self
+                    return None
+
+                def load_module(self, name):
+                    # Let the normal import proceed
+                    sys.meta_path.remove(self)
+                    mod = importlib.import_module(name)
+                    # Now patch it
+                    if hasattr(mod, 'multitalk_loop'):
+                        mod.multitalk_loop = _deferred_patch_fn
+                        log.info(
+                            f"[MultiTalkPromptSchedule] Deferred patch applied "
+                            f"to {name}"
+                        )
+                    sys.meta_path.append(self)
+                    return mod
+
+            sys.meta_path.append(_MultitalkImportHook())
+        else:
+            log.info(
+                f"[MultiTalkPromptSchedule] Patched {patched_count} module(s) "
+                f"with updated multitalk_loop reference."
+            )
 
     except Exception as e:
         log.error(
