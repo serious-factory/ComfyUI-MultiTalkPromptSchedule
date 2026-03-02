@@ -51,8 +51,16 @@ class MultiTalkPromptSchedule:
 
     RETURN_TYPES = ("WANVIDEOTEXTEMBEDS", "WANVIDEOTEXTEMBEDS")
     RETURN_NAMES = ("text_embeds", "negative_text_embeds")
+    OUTPUT_NODE = True
     FUNCTION = "process"
     CATEGORY = "WanVideoWrapper"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Force re-execution every time — prevents ComfyUI from serving
+        # a cached text_embeds dict that was mutated in-place by the
+        # sampler's multitalk_loop during the previous generation.
+        return float("nan")
     DESCRIPTION = """Scene director for MultiTalk: assign prompts to frame ranges.
 
 Format: one line per scene
