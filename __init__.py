@@ -20,7 +20,7 @@ def _disable_cache_for_mutable_nodes():
     _log = logging.getLogger("ComfyUI-MultiTalkPromptSchedule")
 
     # Scan sys.modules to find the classes regardless of module naming
-    target_classes = ["MultiTalkWav2VecEmbeds", "WanVideoImageToVideoMultiTalk"]
+    target_classes = ["MultiTalkWav2VecEmbeds", "WanVideoImageToVideoMultiTalk", "WanVideoModelLoader"]
     for mod_key, mod in list(sys.modules.items()):
         if mod is None:
             continue
